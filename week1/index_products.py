@@ -86,7 +86,7 @@ def get_opensearch():
     host = 'localhost'
     port = 9200
     auth = ('admin', 'admin')
-    client = OpenSearch(hosts=[f"https://{host}:{port}"], http_auth=auth, verify_certs=False, )
+    client = OpenSearch(hosts=[f"https://{host}:{port}"], http_auth=auth, verify_certs=False)
     return client
 
 
