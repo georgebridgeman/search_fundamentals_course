@@ -17,7 +17,8 @@ bp = Blueprint('search', __name__, url_prefix='/search')
 def process_filters(filters_input):
     # Filters look like: &filter.name=regularPrice&regularPrice.key={{ agg.key }}&regularPrice.from={{ agg.from }}&regularPrice.to={{ agg.to }}
     filters = []
-    display_filters = []  # Also create the text we will use to display the filters that are applied
+    # Also create the text we will use to display the filters that are applied
+    display_filters = []
     applied_filters = ""
     for filter in filters_input:
         type = request.args.get(filter + ".type")
@@ -40,25 +41,28 @@ def process_filters(filters_input):
                 to_val = "*"  # set it to * for display purposes, but don't use it in the query
             the_filter = {"range": {filter: to_from}}
             filters.append(the_filter)
-            display_filters.append("{}: {} TO {}".format(display_name, from_val, to_val))
-            applied_filters += "&{}.from={}&{}.to={}".format(filter, from_val, filter, to_val)
+            display_filters.append("{}: {} TO {}".format(
+                display_name, from_val, to_val))
+            applied_filters += "&{}.from={}&{}.to={}".format(
+                filter, from_val, filter, to_val)
         elif type == "terms":
             field = request.args.get(filter + ".fieldName", filter)
             key = request.args.get(filter + ".key", None)
             the_filter = {"term": {field: key}}
             filters.append(the_filter)
             display_filters.append("{}: {}".format(display_name, key))
-            applied_filters += "&{}.fieldName={}&{}.key={}".format(filter, field, filter, key)
+            applied_filters += "&{}.fieldName={}&{}.key={}".format(
+                filter, field, filter, key)
     print("Filters: {}".format(filters))
 
     return filters, display_filters, applied_filters
 
 
-
 # Our main query route.  Accepts POST (via the Search box) and GETs via the clicks on aggregations/facets
 @bp.route('/query', methods=['GET', 'POST'])
 def query():
-    opensearch = get_opensearch() # Load up our OpenSearch client from the opensearch.py file.
+    # Load up our OpenSearch client from the opensearch.py file.
+    opensearch = get_opensearch()
     # Put in your code to query opensearch.  Set error as appropriate.
     error = None
     user_query = None
@@ -93,11 +97,11 @@ def query():
 
     print("query obj: {}".format(query_obj))
 
-    #### Step 4.b.ii
-    response = None   # TODO: Replace me with an appropriate call to OpenSearch
+    response = get_opensearch().search(body=query_obj, index="bbuy_products")
+    # Step 4.b.ii
     # Postprocess results here if you so desire
 
-    #print(response)
+    # print(response)
     if error is None:
         return render_template("search_results.jinja2", query=user_query, search_response=response,
                                display_filters=display_filters, applied_filters=applied_filters,
@@ -111,11 +115,84 @@ def create_query(user_query, filters, sort="_score", sortDir="desc"):
     query_obj = {
         'size': 10,
         "query": {
-            "match_all": {} # Replace me with a query that both searches and filters
+            "bool": {
+                "filter": filters,
+                "must": [
+                    {
+                        "query_string": {
+                            "fields": ["name", "shortDescription", "longDescription"],
+                            "query": user_query,
+                            "phrase_slop": 3
+                        }
+                    }
+                ]
+            }
         },
         "aggs": {
-            #### Step 4.b.i: create the appropriate query and aggregations here
-
+            "regularPrice": {
+                "range": {
+                    "field": "regularPrice",
+                    "ranges": [
+                        {
+                            "from": 0,
+                            "to": 20,
+                            "key": "$"
+                        },
+                        {
+                            "from": 20,
+                            "to": 50,
+                            "key": "$$"
+                        },
+                        {
+                            "from": 50,
+                            "to": 100,
+                            "key": "$$$"
+                        },
+                        {
+                            "from": 100,
+                            "to": 200,
+                            "key": "$$$$"
+                        },
+                        {
+                            "from": 200,
+                            "to": 500,
+                            "key": "$$$$$"
+                        },
+                        {
+                            "from": 500,
+                            "key": "$$$$$$"
+                        }
+                    ]
+                }
+            },
+            "department": {
+                "terms": {
+                    "field": "department.keyword",
+                    "size": 10
+                }
+            },
+            "missing_images": {
+                "missing": {
+                    "field": "image.keyword"
+                }
+            }
+        },
+        "highlight": {
+            "fields": {
+                "name.keyword": {},
+                "shortDescription": {},
+                "longDescription": {}
+            },
+            "pre_tags": ["<mark>"],
+            "post_tags": ["</mark>"]
         }
     }
+    if sort != "_score":
+        query_obj["sort"] = [
+            {
+                sort: {
+                    "order": sortDir
+                }
+            }
+        ]
     return query_obj
