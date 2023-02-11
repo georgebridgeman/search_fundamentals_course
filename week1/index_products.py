@@ -6,13 +6,15 @@ from lxml import etree
 import click
 import glob
 from opensearchpy import OpenSearch
-from opensearchpy.helpers import bulk
+from opensearchpy.helpers import bulk, BulkIndexError
 import logging
 
 from time import perf_counter
 import concurrent.futures
 
+import urllib3
 
+urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -84,8 +86,7 @@ def get_opensearch():
     host = 'localhost'
     port = 9200
     auth = ('admin', 'admin')
-    #### Step 2.a: Create a connection to OpenSearch
-    client = None
+    client = OpenSearch(hosts=[f"https://{host}:{port}"], http_auth=auth, verify_certs=False, )
     return client
 
 
@@ -103,12 +104,20 @@ def index_file(file, index_name):
             xpath_expr = mappings[idx]
             key = mappings[idx + 1]
             doc[key] = child.xpath(xpath_expr)
-        #print(doc)
+        # print(doc)
         if 'productId' not in doc or len(doc['productId']) == 0:
             continue
         #### Step 2.b: Create a valid OpenSearch Doc and bulk index 2000 docs at a time
-        the_doc = None
+        the_doc = {
+            "_op_type": "create",
+            "_index": index_name,
+            "_source": doc
+        }
         docs.append(the_doc)
+        # if len(docs) == 2000:
+    indexed, _ = bulk(client, docs, raise_on_error=False, stats_only=True, raise_on_exception=True, request_timeout=30, chunk_size=2000, ignore_status=[409])
+    docs_indexed += indexed
+        # docs = []
 
     return docs_indexed
 
